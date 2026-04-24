@@ -1,0 +1,1925 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
+import 'firebase_options.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  runApp(const FleetOpsApp());
+}
+
+class FleetOpsApp extends StatelessWidget {
+  const FleetOpsApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'FleetOps AI',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.lightBlue),
+        scaffoldBackgroundColor: const Color(0xFFE3F2FD),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black,
+          elevation: 0,
+        ),
+        cardTheme: const CardThemeData(
+          elevation: 4,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(16.0)),
+          ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12.0),
+            borderSide: BorderSide(color: Colors.grey.shade400, width: 1.0),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12.0),
+            borderSide: BorderSide(color: Colors.blue.shade700, width: 2.0),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12.0),
+            borderSide: BorderSide(color: Colors.grey.shade300, width: 1.0),
+          ),
+          labelStyle: TextStyle(color: Colors.blueGrey.shade600),
+          hintStyle: TextStyle(color: Colors.grey.shade500),
+          filled: true,
+          fillColor: Colors.white,
+          contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            textStyle: const TextStyle(fontWeight: FontWeight.bold),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        ),
+      ),
+      home: const LoginScreen(),
+    );
+  }
+}
+
+/* ================= HOME SCREEN ================= */
+class HomeScreen extends StatefulWidget {
+  final String role;
+
+  const HomeScreen({super.key, required this.role});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
+  late TabController _tabController;
+
+  // Real-time Lists
+  List<Expense> expenses = [];
+  List<DispatchRecord> dispatches = [];
+
+  // Stream Subscriptions for Firebase
+  StreamSubscription? _expensesSubscription;
+  StreamSubscription? _dispatchesSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: NavigationItem.fleetOpsNavigationItems.length, vsync: this);
+
+    // Start listening to Firestore for Expenses
+    _expensesSubscription = FirebaseFirestore.instance
+        .collection('expenses')
+        .snapshots()
+        .listen((snapshot) {
+      setState(() {
+        expenses = snapshot.docs.map((doc) => Expense.fromMap(doc.data(), doc.id)).toList();
+      });
+    });
+
+    // Start listening to Firestore for Dispatches
+    _dispatchesSubscription = FirebaseFirestore.instance
+        .collection('dispatches')
+        .snapshots()
+        .listen((snapshot) {
+      setState(() {
+        dispatches = snapshot.docs.map((doc) => DispatchRecord.fromMap(doc.data(), doc.id)).toList();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _expensesSubscription?.cancel();
+    _dispatchesSubscription?.cancel();
+    super.dispose();
+  }
+
+  // --- Firebase Write Operations ---
+
+  Future<void> _addDispatch(DispatchRecord record) async {
+    try {
+      await FirebaseFirestore.instance.collection('dispatches').add(record.toMap());
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Dispatch logged successfully')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  Future<void> _deleteDispatch(String id) async {
+    try {
+      await FirebaseFirestore.instance.collection('dispatches').doc(id).delete();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Dispatch deleted')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  Future<void> _addExpense(Expense record) async {
+    try {
+      await FirebaseFirestore.instance.collection('expenses').add(record.toMap());
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Expense logged successfully')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  Future<void> _deleteExpense(String id) async {
+    try {
+      await FirebaseFirestore.instance.collection('expenses').doc(id).delete();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Expense deleted')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Row(
+          children: <Widget>[
+            Icon(Icons.local_shipping, color: Colors.blue, size: 24),
+            SizedBox(width: 8),
+            Text('FleetOps AI', style: TextStyle(color: Colors.black)),
+          ],
+        ),
+        actions: [
+          TextButton.icon(
+            icon: const Icon(Icons.logout, color: Colors.black),
+            label: const Text('Logout', style: TextStyle(color: Colors.black)),
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+              if (mounted) {
+                Navigator.pushReplacement<void, void>(context, MaterialPageRoute<void>(builder: (context) => const LoginScreen()));
+              }
+            },
+          ),
+        ],
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Theme.of(context).colorScheme.primary,
+          labelColor: Theme.of(context).colorScheme.primary,
+          unselectedLabelColor: Colors.grey.shade600,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
+          padding: EdgeInsets.zero,
+          labelPadding: const EdgeInsets.symmetric(horizontal: 16.0),
+          tabs: NavigationItem.fleetOpsNavigationItems.map<Tab>((item) {
+            return Tab(icon: Icon(item.icon), text: item.title);
+          }).toList(),
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: <Widget>[
+          DashboardView(expenses: expenses, dispatches: dispatches),
+          ExpensesView(expenses: expenses, onAddExpense: _addExpense, onDeleteExpense: _deleteExpense),
+          DispatchView(dispatches: dispatches, onAddDispatch: _addDispatch, onDeleteDispatch: _deleteDispatch),
+          ReportsView(expenses: expenses, dispatches: dispatches),
+          AIInsightsView(expenses: expenses, dispatches: dispatches),
+        ],
+      ),
+    );
+  }
+}
+
+/* ================= AI INSIGHTS VIEW ================= */
+class AIInsightsView extends StatelessWidget {
+  final List<Expense> expenses;
+  final List<DispatchRecord> dispatches;
+
+  AIInsightsView({super.key, required this.expenses, required this.dispatches});
+
+  final NumberFormat currencyFormat = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+
+  List<Map<String, dynamic>> detectFuelAnomalies() {
+    final fuelExpenses = expenses.where((e) => e.category == 'Diesel' && e.vehicleId != null);
+    Map<String, List<double>> fuelByTruck = {};
+    for (var exp in fuelExpenses) {
+      fuelByTruck.putIfAbsent(exp.vehicleId!, () => []).add(exp.amount);
+    }
+    Map<String, double> avgFuel = {};
+    fuelByTruck.forEach((truck, amounts) {
+      avgFuel[truck] = amounts.reduce((a, b) => a + b) / amounts.length;
+    });
+
+    double overallAvg = 0;
+    if (avgFuel.isNotEmpty) {
+      overallAvg = avgFuel.values.reduce((a, b) => a + b) / avgFuel.length;
+    }
+
+    List<Map<String, dynamic>> anomalies = [];
+    avgFuel.forEach((truck, avg) {
+      if (avg > overallAvg * 1.2) {
+        anomalies.add({
+          'truck': truck,
+          'avgFuel': avg,
+          'deviation': ((avg - overallAvg) / overallAvg * 100).toStringAsFixed(1),
+        });
+      }
+    });
+    return anomalies;
+  }
+
+  List<Map<String, dynamic>> predictMaintenance() {
+    Map<String, int> truckUsage = {};
+    for (var dispatch in dispatches) {
+      truckUsage[dispatch.vehicleId] = (truckUsage[dispatch.vehicleId] ?? 0) + 1;
+    }
+
+    final maintenanceExpenses = expenses.where((e) => e.category == 'Maintenance' && e.vehicleId != null);
+    Map<String, DateTime> lastMaintenance = {};
+    for (var exp in maintenanceExpenses) {
+      DateTime expDate = DateTime.parse(exp.date);
+      if (!lastMaintenance.containsKey(exp.vehicleId!) || expDate.isAfter(lastMaintenance[exp.vehicleId!]!)) {
+        lastMaintenance[exp.vehicleId!] = expDate;
+      }
+    }
+
+    List<Map<String, dynamic>> predictions = [];
+    truckUsage.forEach((truck, trips) {
+      DateTime? lastDate = lastMaintenance[truck];
+      int daysSince = lastDate != null ? DateTime.now().difference(lastDate).inDays : 90;
+
+      if (trips > 15 || daysSince > 60) {
+        predictions.add({
+          'truck': truck,
+          'trips': trips,
+          'daysSince': daysSince,
+          'priority': (trips > 20 || daysSince > 75) ? 'high' : 'medium',
+        });
+      }
+    });
+
+    predictions.sort((a, b) {
+      if (a['priority'] == 'high' && b['priority'] != 'high') return -1;
+      if (a['priority'] != 'high' && b['priority'] == 'high') return 1;
+      return (b['trips'] as int).compareTo(a['trips'] as int);
+    });
+    return predictions;
+  }
+
+  List<Map<String, dynamic>> analyzeRoutes() {
+    Map<String, Map<String, dynamic>> routeData = {};
+    for (var dispatch in dispatches) {
+      if (!routeData.containsKey(dispatch.route)) {
+        routeData[dispatch.route] = {'revenue': 0.0, 'count': 0};
+      }
+      routeData[dispatch.route]!['revenue'] += dispatch.revenue;
+      routeData[dispatch.route]!['count'] += 1;
+    }
+
+    List<Map<String, dynamic>> routes = routeData.entries.map((e) => {
+      'route': e.key,
+      'totalRevenue': e.value['revenue'],
+      'avgRevenue': e.value['revenue'] / e.value['count'],
+      'count': e.value['count'],
+    }).toList();
+
+    routes.sort((a, b) => (b['avgRevenue'] as double).compareTo(a['avgRevenue'] as double));
+    return routes.length > 5 ? routes.sublist(0, 5) : routes;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fuelAnomalies = detectFuelAnomalies();
+    final maintenancePredictions = predictMaintenance();
+    final topRoutes = analyzeRoutes();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('AI Insights', style: Theme.of(context).textTheme.titleLarge),
+              const Icon(Icons.psychology, color: Colors.purple, size: 28),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Fuel Anomalies Card
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.local_gas_station, color: Colors.orange),
+                      const SizedBox(width: 8),
+                      Text("Fuel Consumption Anomalies", style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (fuelAnomalies.isEmpty)
+                    Center(
+                      child: Column(
+                        children: [
+                          const Text("✅", style: TextStyle(fontSize: 32)),
+                          const SizedBox(height: 8),
+                          Text("All trucks have normal fuel consumption patterns", style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                        ],
+                      ),
+                    )
+                  else ...[
+                    Text("AI has detected trucks with higher than average fuel consumption:", style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                    const SizedBox(height: 12),
+                    ...fuelAnomalies.map((anomaly) => Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        border: Border.all(color: Colors.orange.shade200),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      // FLATTENED ROW LAYOUT TO PREVENT CRASH
+                      child: Row(
+                        children: [
+                          Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 20),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(anomaly['truck'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), overflow: TextOverflow.ellipsis),
+                                Text("Avg fuel: ${currencyFormat.format(anomaly['avgFuel'])}", style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(4)),
+                            child: Text("+${anomaly['deviation']}%", style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ),
+                    )),
+                    const SizedBox(height: 4),
+                    Text("💡 Recommendation: Check for mechanical issues or route inefficiencies", style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontStyle: FontStyle.italic)),
+                  ]
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Predictive Maintenance Card
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.handyman, color: Colors.blue),
+                      const SizedBox(width: 8),
+                      Text("Predictive Maintenance", style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (maintenancePredictions.isEmpty)
+                    Center(
+                      child: Column(
+                        children: [
+                          const Text("✅", style: TextStyle(fontSize: 32)),
+                          const SizedBox(height: 8),
+                          Text("All trucks are in good condition based on usage patterns", style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                        ],
+                      ),
+                    )
+                  else ...[
+                    Text("AI predicts these trucks may need maintenance soon:", style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                    const SizedBox(height: 12),
+                    ...maintenancePredictions.map((prediction) {
+                      bool isHigh = prediction['priority'] == 'high';
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isHigh ? Colors.red.shade50 : Colors.yellow.shade50,
+                          border: Border.all(color: isHigh ? Colors.red.shade200 : Colors.yellow.shade400),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        // FLATTENED ROW LAYOUT TO PREVENT CRASH
+                        child: Row(
+                          children: [
+                            Icon(Icons.build, color: isHigh ? Colors.red.shade700 : Colors.orange.shade700, size: 20),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(prediction['truck'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), overflow: TextOverflow.ellipsis),
+                                  Text("${prediction['trips']} trips • ${prediction['daysSince']} days since last service", style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                  color: isHigh ? Colors.red : Colors.orange.shade400,
+                                  borderRadius: BorderRadius.circular(4)
+                              ),
+                              child: Text(isHigh ? "High" : "Medium", style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                    const SizedBox(height: 4),
+                    Text("💡 Recommendation: Schedule preventive maintenance to avoid breakdowns", style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontStyle: FontStyle.italic)),
+                  ]
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Route Profitability Card
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.trending_up, color: Colors.green),
+                      const SizedBox(width: 8),
+                      Text("Top Profitable Routes", style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (topRoutes.isEmpty)
+                    Center(child: Padding(padding: const EdgeInsets.all(16.0), child: Text("No route data available yet", style: TextStyle(color: Colors.grey.shade600, fontSize: 13))))
+                  else ...[
+                    ...topRoutes.asMap().entries.map((entry) {
+                      int index = entry.key;
+                      var route = entry.value;
+
+                      Color rankColor = Colors.grey.shade300;
+                      if (index == 0) rankColor = Colors.amber.shade500;
+                      if (index == 1) rankColor = Colors.blueGrey.shade400;
+                      if (index == 2) rankColor = Colors.orange.shade600;
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                        // FLATTENED ROW LAYOUT TO PREVENT CRASH
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 24, height: 24,
+                              decoration: BoxDecoration(color: rankColor, shape: BoxShape.circle),
+                              child: Center(child: Text("${index + 1}", style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold))),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(route['route'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), overflow: TextOverflow.ellipsis),
+                                  Text("${route['count']} ${route['count'] == 1 ? 'trip' : 'trips'}", style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(currencyFormat.format(route['avgRevenue']), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                Text("avg/trip", style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                    const SizedBox(height: 4),
+                    Text("💡 Recommendation: Focus on high-revenue routes for maximum profitability", style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontStyle: FontStyle.italic)),
+                  ]
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 40),
+        ],
+      ),
+    );
+  }
+}
+
+/* ================= DASHBOARD VIEW ================= */
+class DashboardView extends StatelessWidget {
+  final List<Expense> expenses;
+  final List<DispatchRecord> dispatches;
+
+  DashboardView({super.key, required this.expenses, required this.dispatches});
+
+  final NumberFormat currencyFormat = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+  final String todayStr = DateTime.now().toIso8601String().split('T')[0];
+
+  @override
+  Widget build(BuildContext context) {
+    final double todayExpenses = expenses.where((e) => e.date == todayStr).fold(0, (sum, item) => sum + item.amount);
+    final double todayRevenue = dispatches.where((d) => d.date == todayStr).fold(0, (sum, item) => sum + item.revenue);
+    final double todayProfit = todayRevenue - todayExpenses;
+    final double totalExpenses = expenses.fold(0, (sum, item) => sum + item.amount);
+    final double totalRevenue = dispatches.fold(0, (sum, item) => sum + item.revenue);
+    final double totalProfit = totalRevenue - totalExpenses;
+    final int activeFleetCount = dispatches.where((d) => d.date == todayStr).length;
+
+    final Map<String, double> expenseByCategory = {};
+    for (var exp in expenses) {
+      expenseByCategory[exp.category] = (expenseByCategory[exp.category] ?? 0) + exp.amount;
+    }
+
+    double maxCategoryExpense = 0;
+    if (expenseByCategory.isNotEmpty) {
+      maxCategoryExpense = expenseByCategory.values.reduce((a, b) => a > b ? a : b);
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          GridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: MediaQuery.of(context).size.width > 600 ? 4 : 2,
+            childAspectRatio: 1.4,
+            mainAxisSpacing: 12.0,
+            crossAxisSpacing: 12.0,
+            children: [
+              DashboardMetricCard(title: "Today's Profit", metricValue: currencyFormat.format(todayProfit), description: "Revenue: ${currencyFormat.format(todayRevenue)}", icon: todayProfit >= 0 ? Icons.trending_up : Icons.trending_down, iconColor: todayProfit >= 0 ? Colors.green : Colors.red),
+              DashboardMetricCard(title: "Active Fleet", metricValue: "$activeFleetCount / 12", description: "On dispatch today", icon: Icons.local_shipping, iconColor: Colors.blue),
+              DashboardMetricCard(title: "Total Profit", metricValue: currencyFormat.format(totalProfit), description: "All time", icon: Icons.account_balance_wallet, iconColor: Colors.green),
+              DashboardMetricCard(title: "Total Expenses", metricValue: currencyFormat.format(totalExpenses), description: "All time", icon: Icons.warning_amber_rounded, iconColor: Colors.orange),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Expense Breakdown", style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
+                  if (expenseByCategory.isEmpty)
+                    Center(child: Padding(padding: const EdgeInsets.all(16.0), child: Text("No expenses recorded yet", style: TextStyle(color: Colors.grey.shade600, fontSize: 13))))
+                  else
+                    ...expenseByCategory.entries.map((entry) {
+                      final percentage = maxCategoryExpense > 0 ? entry.value / maxCategoryExpense : 0.0;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(entry.key, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                                Text(currencyFormat.format(entry.value), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Stack(
+                              children: [
+                                Container(height: 8, decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(4))),
+                                FractionallySizedBox(
+                                  widthFactor: percentage,
+                                  child: Container(height: 8, decoration: BoxDecoration(color: Colors.deepPurpleAccent, borderRadius: BorderRadius.circular(4))),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 40),
+        ],
+      ),
+    );
+  }
+}
+
+class DashboardMetricCard extends StatelessWidget {
+  final String title, metricValue, description;
+  final IconData? icon;
+  final Color? iconColor;
+
+  const DashboardMetricCard({super.key, required this.title, required this.metricValue, required this.description, this.icon, this.iconColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: <Widget>[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(child: Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87), overflow: TextOverflow.ellipsis)),
+                if (icon != null) Icon(icon, color: iconColor ?? Colors.black, size: 18),
+              ],
+            ),
+            Text(metricValue, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black), overflow: TextOverflow.ellipsis),
+            Text(description, style: TextStyle(fontSize: 11, color: Colors.grey.shade600), overflow: TextOverflow.ellipsis),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/* ================= EXPENSES VIEW ================= */
+class ExpensesView extends StatelessWidget {
+  final List<Expense> expenses;
+  final Function(Expense) onAddExpense;
+  final Function(String) onDeleteExpense;
+
+  ExpensesView({super.key, required this.expenses, required this.onAddExpense, required this.onDeleteExpense});
+
+  final NumberFormat currencyFormat = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+
+  final List<Map<String, dynamic>> categories = [
+    {'value': 'Diesel', 'icon': Icons.local_gas_station, 'color': Colors.blue},
+    {'value': 'Worker Salaries', 'icon': Icons.people_alt, 'color': Colors.green},
+    {'value': 'Police Fines', 'icon': Icons.gavel, 'color': Colors.red},
+    {'value': 'Maintenance', 'icon': Icons.car_repair, 'color': Colors.orange},
+  ];
+
+  IconData getCategoryIcon(String category) {
+    final cat = categories.firstWhere((c) => c['value'] == category, orElse: () => {'icon': Icons.error_outline});
+    return cat['icon'];
+  }
+
+  Color getCategoryColor(String category) {
+    final cat = categories.firstWhere((c) => c['value'] == category, orElse: () => {'color': Colors.grey});
+    return cat['color'];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Map<String, List<Expense>> groupedExpenses = {};
+    for (var e in expenses) {
+      groupedExpenses.putIfAbsent(e.date, () => []).add(e);
+    }
+
+    final sortedDates = groupedExpenses.keys.toList()
+      ..sort((a, b) => b.compareTo(a));
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text('Expense Management', style: Theme.of(context).textTheme.titleLarge, overflow: TextOverflow.ellipsis),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text("Add Expense"),
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (context) => AddExpenseDialog(onAdd: onAddExpense, categories: categories.map((c) => c['value'].toString()).toList()),
+                  );
+                },
+              )
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          GridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: 2,
+            childAspectRatio: 2.5,
+            mainAxisSpacing: 8.0,
+            crossAxisSpacing: 8.0,
+            children: categories.map((cat) {
+              final total = expenses.where((e) => e.category == cat['value']).fold(0.0, (sum, e) => sum + e.amount);
+              return Card(
+                elevation: 1,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(cat['icon'], size: 16, color: cat['color']),
+                          const SizedBox(width: 6),
+                          Expanded(child: Text(cat['value'], style: TextStyle(color: Colors.grey.shade600, fontSize: 12), overflow: TextOverflow.ellipsis)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(currencyFormat.format(total), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 24),
+
+          if (sortedDates.isEmpty)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Center(
+                  child: Text("No expenses recorded yet.", style: TextStyle(color: Colors.grey.shade600)),
+                ),
+              ),
+            )
+          else
+            ...sortedDates.map((date) {
+              final dayExpenses = groupedExpenses[date]!;
+              final dayTotal = dayExpenses.fold(0.0, (sum, e) => sum + e.amount);
+
+              final DateTime parsedDate = DateTime.parse(date);
+              final String formattedDate = DateFormat('EEEE, MMMM d, yyyy').format(parsedDate);
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 16),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(formattedDate, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text("Total: ${currencyFormat.format(dayTotal)}", style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                      const SizedBox(height: 12),
+                      ...dayExpenses.map((expense) => Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(getCategoryIcon(expense.category), color: getCategoryColor(expense.category), size: 20),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(expense.category, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                                  if (expense.vehicleId != null && expense.vehicleId!.isNotEmpty)
+                                    Padding(padding: const EdgeInsets.only(top: 2.0), child: Text("Truck: ${expense.vehicleId}", style: TextStyle(fontSize: 12, color: Colors.grey.shade700))),
+                                  if (expense.description.isNotEmpty)
+                                    Padding(padding: const EdgeInsets.only(top: 2.0), child: Text(expense.description, style: TextStyle(fontSize: 12, color: Colors.grey.shade600))),
+                                ],
+                              ),
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(currencyFormat.format(expense.amount), style: const TextStyle(fontWeight: FontWeight.bold)),
+                                IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20), onPressed: () => onDeleteExpense(expense.id), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ))
+                    ],
+                  ),
+                ),
+              );
+            }),
+          const SizedBox(height: 40),
+        ],
+      ),
+    );
+  }
+}
+
+class AddExpenseDialog extends StatefulWidget {
+  final Function(Expense) onAdd;
+  final List<String> categories;
+
+  const AddExpenseDialog({super.key, required this.onAdd, required this.categories});
+
+  @override
+  State<AddExpenseDialog> createState() => _AddExpenseDialogState();
+}
+
+class _AddExpenseDialogState extends State<AddExpenseDialog> {
+  final List<String> trucks = [
+    'TRK 01 (MH05MK0427)',
+    'TRK 02 (MH05AB1234)',
+    'TRK 03 (MH05CD5678)',
+    'TRK 04 (MH05EF9012)',
+    'TRK 05 (MH05GH3456)',
+    'TRK 06 (MH05IJ7890)',
+    'TRK 07 (MH05KL1234)',
+    'TRK 08 (MH05MN5678)',
+    'TRK 09 (MH05OP9012)',
+    'TRK 10 (MH05QR3456)',
+    'TRK 11 (MH05ST7890)',
+    'TRK 12 (MH05UV1234)'
+  ];
+
+  String? selectedCategory;
+  String? selectedTruck;
+  String selectedDate = DateTime.now().toIso8601String().split('T')[0];
+
+  final TextEditingController amountController = TextEditingController();
+  final TextEditingController descriptionController = TextEditingController();
+
+  void _submit() {
+    if (selectedCategory == null || amountController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all required fields')));
+      return;
+    }
+
+    final newExpense = Expense(
+      id: '', // Firebase handles the ID generation
+      category: selectedCategory!,
+      amount: double.tryParse(amountController.text) ?? 0.0,
+      date: selectedDate,
+      description: descriptionController.text.trim(),
+      vehicleId: selectedTruck,
+    );
+
+    widget.onAdd(newExpense);
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add New Expense'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            DropdownButtonFormField<String>(
+              decoration: const InputDecoration(labelText: 'Category *'),
+              value: selectedCategory,
+              items: widget.categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+              onChanged: (val) => setState(() => selectedCategory = val),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(controller: amountController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Amount (₹) *')),
+            const SizedBox(height: 16),
+            TextFormField(
+              initialValue: selectedDate, readOnly: true, decoration: const InputDecoration(labelText: 'Date *', suffixIcon: Icon(Icons.calendar_today)),
+              onTap: () async {
+                DateTime? picked = await showDatePicker(context: context, initialDate: DateTime.parse(selectedDate), firstDate: DateTime(2020), lastDate: DateTime(2100));
+                if (picked != null) setState(() => selectedDate = picked.toIso8601String().split('T')[0]);
+              },
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Truck Number (Optional)'),
+              value: selectedTruck,
+              items: trucks.map((t) => DropdownMenuItem(value: t, child: Text(t, overflow: TextOverflow.ellipsis))).toList(),
+              onChanged: (val) => setState(() => selectedTruck = val),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(controller: descriptionController, decoration: const InputDecoration(labelText: 'Description (Notes...)')),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        ElevatedButton(onPressed: _submit, child: const Text('Add Expense')),
+      ],
+    );
+  }
+}
+
+/* ================= DISPATCH VIEW ================= */
+class DispatchView extends StatelessWidget {
+  final List<DispatchRecord> dispatches;
+  final Function(DispatchRecord) onAddDispatch;
+  final Function(String) onDeleteDispatch;
+
+  DispatchView({super.key, required this.dispatches, required this.onAddDispatch, required this.onDeleteDispatch});
+
+  final NumberFormat currencyFormat = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+
+  @override
+  Widget build(BuildContext context) {
+    final String todayDate = DateTime.now().toIso8601String().split('T')[0];
+    final todayDispatches = dispatches.where((d) => d.date == todayDate).toList();
+    final todayRevenue = todayDispatches.fold(0.0, (sum, d) => sum + d.revenue);
+
+    final Map<String, List<DispatchRecord>> groupedDispatches = {};
+    for (var d in dispatches) {
+      groupedDispatches.putIfAbsent(d.date, () => []).add(d);
+    }
+
+    final sortedDates = groupedDispatches.keys.toList()
+      ..sort((a, b) => b.compareTo(a));
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(child: Text('Daily Dispatch Log', style: Theme.of(context).textTheme.titleLarge, overflow: TextOverflow.ellipsis)),
+              const SizedBox(width: 8),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text("Log Dispatch"),
+                onPressed: () {
+                  showDialog(context: context, builder: (context) => AddDispatchDialog(onAdd: onAddDispatch));
+                },
+              )
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          Row(
+            children: [
+              Expanded(
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.calendar_today, size: 16, color: Colors.grey.shade600),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text("Today's Dispatches", style: TextStyle(color: Colors.grey.shade600, fontSize: 13), overflow: TextOverflow.ellipsis)),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text("${todayDispatches.length}", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.trending_up, size: 16, color: Colors.grey.shade600),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text("Today's Revenue", style: TextStyle(color: Colors.grey.shade600, fontSize: 13), overflow: TextOverflow.ellipsis)),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(currencyFormat.format(todayRevenue), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          if (sortedDates.isEmpty)
+            Card(child: Padding(padding: const EdgeInsets.all(24.0), child: Center(child: Text("No dispatches logged yet.", style: TextStyle(color: Colors.grey.shade600)))))
+          else
+            ...sortedDates.map((date) {
+              final dayDispatches = groupedDispatches[date]!;
+              final dayRevenue = dayDispatches.fold(0.0, (sum, d) => sum + d.revenue);
+              final DateTime parsedDate = DateTime.parse(date);
+              final String formattedDate = DateFormat('EEEE, MMMM d, yyyy').format(parsedDate);
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 16),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(formattedDate, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text("${dayDispatches.length} trucks • Revenue: ${currencyFormat.format(dayRevenue)}", style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                      const SizedBox(height: 12),
+                      ...dayDispatches.map((dispatch) => Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.location_on, color: Colors.blue, size: 20),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                            decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade400), borderRadius: BorderRadius.circular(4)),
+                                            child: Text(dispatch.vehicleId, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      if (dispatch.status != 'Completed')
+                                        Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(4)), child: Text(dispatch.status, style: const TextStyle(fontSize: 11))),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(dispatch.route, style: const TextStyle(fontSize: 14)),
+                                  Text("Revenue: ${currencyFormat.format(dispatch.revenue)}", style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                ],
+                              ),
+                            ),
+                            IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20), onPressed: () => onDeleteDispatch(dispatch.id), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
+                          ],
+                        ),
+                      ))
+                    ],
+                  ),
+                ),
+              );
+            }),
+          const SizedBox(height: 40),
+        ],
+      ),
+    );
+  }
+}
+
+class AddDispatchDialog extends StatefulWidget {
+  final Function(DispatchRecord) onAdd;
+
+  const AddDispatchDialog({super.key, required this.onAdd});
+
+  @override
+  State<AddDispatchDialog> createState() => _AddDispatchDialogState();
+}
+
+class _AddDispatchDialogState extends State<AddDispatchDialog> {
+  final List<String> trucks = [
+    'TRK 01 (MH05MK0427)',
+    'TRK 02 (MH05AB1234)',
+    'TRK 03 (MH05CD5678)',
+    'TRK 04 (MH05EF9012)',
+    'TRK 05 (MH05GH3456)',
+    'TRK 06 (MH05IJ7890)',
+    'TRK 07 (MH05KL1234)',
+    'TRK 08 (MH05MN5678)',
+    'TRK 09 (MH05OP9012)',
+    'TRK 10 (MH05QR3456)',
+    'TRK 11 (MH05ST7890)',
+    'TRK 12 (MH05UV1234)'
+  ];
+
+  final List<String> commonRoutes = ['Mumbai - Delhi', 'Mumbai - Bangalore', 'Delhi - Chennai', 'Pune - Hyderabad', 'Ahmedabad - Kolkata', 'Surat - Jaipur', 'Mumbai - Pune', 'Delhi - Agra'];
+
+  String? selectedTruck;
+  String? selectedRoute;
+  String? selectedStatus = 'Completed';
+  String selectedDate = DateTime.now().toIso8601String().split('T')[0];
+
+  final TextEditingController routeController = TextEditingController();
+  final TextEditingController revenueController = TextEditingController();
+
+  void _submit() {
+    String finalRoute = routeController.text.isNotEmpty ? routeController.text : (selectedRoute ?? '');
+
+    if (selectedTruck == null || finalRoute.isEmpty || revenueController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all required fields')));
+      return;
+    }
+
+    final newDispatch = DispatchRecord(
+      id: '', // Firebase handles the ID generation
+      vehicleId: selectedTruck!,
+      route: finalRoute,
+      date: selectedDate,
+      revenue: double.tryParse(revenueController.text) ?? 0.0,
+      status: selectedStatus!,
+    );
+
+    widget.onAdd(newDispatch);
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Log New Dispatch'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            DropdownButtonFormField<String>(
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Truck Number *'),
+              value: selectedTruck,
+              items: trucks.map((t) => DropdownMenuItem(value: t, child: Text(t, overflow: TextOverflow.ellipsis))).toList(),
+              onChanged: (val) => setState(() => selectedTruck = val),
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              decoration: const InputDecoration(labelText: 'Route *'),
+              value: selectedRoute,
+              items: commonRoutes.map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
+              onChanged: (val) {
+                setState(() { selectedRoute = val; routeController.clear(); });
+              },
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: routeController,
+              decoration: const InputDecoration(labelText: 'Or enter custom route'),
+              onChanged: (val) {
+                if (val.isNotEmpty && selectedRoute != null) setState(() => selectedRoute = null);
+              },
+            ),
+            const SizedBox(height: 16),
+            TextFormField(controller: revenueController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Revenue (₹) *')),
+            const SizedBox(height: 16),
+            TextFormField(
+              initialValue: selectedDate, readOnly: true, decoration: const InputDecoration(labelText: 'Date *', suffixIcon: Icon(Icons.calendar_today)),
+              onTap: () async {
+                DateTime? picked = await showDatePicker(context: context, initialDate: DateTime.parse(selectedDate), firstDate: DateTime(2020), lastDate: DateTime(2100));
+                if (picked != null) setState(() => selectedDate = picked.toIso8601String().split('T')[0]);
+              },
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              decoration: const InputDecoration(labelText: 'Status'),
+              value: selectedStatus,
+              items: ['Completed', 'In Transit', 'Scheduled'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+              onChanged: (val) => setState(() => selectedStatus = val),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        ElevatedButton(onPressed: _submit, child: const Text('Log Dispatch')),
+      ],
+    );
+  }
+}
+
+/* ================= REPORTS VIEW ================= */
+class ReportsView extends StatefulWidget {
+  final List<Expense> expenses;
+  final List<DispatchRecord> dispatches;
+
+  const ReportsView({super.key, required this.expenses, required this.dispatches});
+
+  @override
+  State<ReportsView> createState() => _ReportsViewState();
+}
+
+class _ReportsViewState extends State<ReportsView> {
+  final NumberFormat currencyFormat = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+
+  int viewMode = 0;
+  int selectedMonth = DateTime.now().month;
+  int selectedYear = DateTime.now().year;
+
+  final List<String> monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  final List<int> availableYears = [2024, 2025, 2026];
+
+  @override
+  Widget build(BuildContext context) {
+    // --- MONTHLY DATA ---
+    final monthlyExpenses = widget.expenses.where((e) {
+      final d = DateTime.parse(e.date);
+      return d.month == selectedMonth && d.year == selectedYear;
+    }).toList();
+
+    final monthlyDispatches = widget.dispatches.where((d) {
+      final dDate = DateTime.parse(d.date);
+      return dDate.month == selectedMonth && dDate.year == selectedYear;
+    }).toList();
+
+    final totalMonthlyExpenses = monthlyExpenses.fold(0.0, (sum, e) => sum + e.amount);
+    final totalMonthlyRevenue = monthlyDispatches.fold(0.0, (sum, d) => sum + d.revenue);
+    final monthlyProfit = totalMonthlyRevenue - totalMonthlyExpenses;
+
+    final Map<String, double> expensesByCategory = {};
+    for (var exp in monthlyExpenses) {
+      expensesByCategory[exp.category] = (expensesByCategory[exp.category] ?? 0) + exp.amount;
+    }
+
+    final Map<String, Map<String, dynamic>> truckPerformance = {};
+    for (var dispatch in monthlyDispatches) {
+      if (!truckPerformance.containsKey(dispatch.vehicleId)) {
+        truckPerformance[dispatch.vehicleId] = {'trips': 0, 'revenue': 0.0};
+      }
+      truckPerformance[dispatch.vehicleId]!['trips'] += 1;
+      truckPerformance[dispatch.vehicleId]!['revenue'] += dispatch.revenue;
+    }
+
+    final sortedTrucks = truckPerformance.entries.toList()
+      ..sort((a, b) => (b.value['revenue'] as double).compareTo(a.value['revenue'] as double));
+
+    // --- ALL TIME DATA ---
+    final allTimeExpenses = widget.expenses.fold(0.0, (sum, e) => sum + e.amount);
+    final allTimeRevenue = widget.dispatches.fold(0.0, (sum, d) => sum + d.revenue);
+    final allTimeProfit = allTimeRevenue - allTimeExpenses;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(child: Text('Reports & Analytics', style: Theme.of(context).textTheme.titleLarge, overflow: TextOverflow.ellipsis)),
+              const Icon(Icons.calendar_today, color: Colors.grey),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          SegmentedButton<int>(
+            segments: const [
+              ButtonSegment(value: 0, label: Text('Monthly')),
+              ButtonSegment(value: 1, label: Text('All Time')),
+            ],
+            selected: {viewMode},
+            onSelectionChanged: (Set<int> newSelection) {
+              setState(() => viewMode = newSelection.first);
+            },
+            style: ButtonStyle(
+              backgroundColor: WidgetStateProperty.resolveWith<Color>((Set<WidgetState> states) {
+                if (states.contains(WidgetState.selected)) return Theme.of(context).colorScheme.primary.withOpacity(0.1);
+                return Colors.white;
+              }),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          if (viewMode == 0) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                    value: selectedMonth,
+                    items: List.generate(12, (index) => DropdownMenuItem(value: index + 1, child: Text(monthNames[index]))),
+                    onChanged: (val) => setState(() => selectedMonth = val!),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                    value: selectedYear,
+                    items: availableYears.map((y) => DropdownMenuItem(value: y, child: Text(y.toString()))).toList(),
+                    onChanged: (val) => setState(() => selectedYear = val!),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Profit & Loss Statement", style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    Text("${monthNames[selectedMonth - 1]} $selectedYear", style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                    const SizedBox(height: 16),
+
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text("Total Revenue", style: TextStyle(fontSize: 14)),
+                          Text(currencyFormat.format(totalMonthlyRevenue), style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green.shade700)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8)),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text("Total Expenses", style: TextStyle(fontSize: 14)),
+                          Text(currencyFormat.format(totalMonthlyExpenses), style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.red.shade700)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: monthlyProfit >= 0 ? Colors.blue.shade50 : Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              const Text("Net Profit", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                              const SizedBox(width: 8),
+                              Icon(monthlyProfit >= 0 ? Icons.trending_up : Icons.trending_down, size: 16, color: monthlyProfit >= 0 ? Colors.green : Colors.red),
+                            ],
+                          ),
+                          Text(currencyFormat.format(monthlyProfit), style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: monthlyProfit >= 0 ? Colors.blue.shade700 : Colors.orange.shade700)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      "Profit Margin: ${totalMonthlyRevenue > 0 ? ((monthlyProfit / totalMonthlyRevenue) * 100).toStringAsFixed(1) : '0'}%",
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Expense Breakdown", style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 16),
+                    if (expensesByCategory.isEmpty)
+                      Center(child: Padding(padding: const EdgeInsets.all(16.0), child: Text("No expenses for this month", style: TextStyle(color: Colors.grey.shade600, fontSize: 13))))
+                    else
+                      ...expensesByCategory.entries.map((entry) {
+                        final percentage = totalMonthlyExpenses > 0 ? (entry.value / totalMonthlyExpenses) : 0.0;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(entry.key, style: const TextStyle(fontSize: 13)),
+                                  Text(currencyFormat.format(entry.value), style: const TextStyle(fontSize: 13)),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Stack(
+                                children: [
+                                  Container(height: 8, decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(4))),
+                                  FractionallySizedBox(
+                                    widthFactor: percentage,
+                                    child: Container(height: 8, decoration: BoxDecoration(color: Colors.deepPurpleAccent, borderRadius: BorderRadius.circular(4))),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Align(alignment: Alignment.centerRight, child: Text("${(percentage * 100).toStringAsFixed(1)}%", style: TextStyle(fontSize: 11, color: Colors.grey.shade600))),
+                            ],
+                          ),
+                        );
+                      }),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Truck Performance", style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 16),
+                    if (sortedTrucks.isEmpty)
+                      Center(child: Padding(padding: const EdgeInsets.all(16.0), child: Text("No dispatch data for this month", style: TextStyle(color: Colors.grey.shade600, fontSize: 13))))
+                    else
+                      ...sortedTrucks.map((truck) => Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(truck.key, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
+                                  Text("${truck.value['trips']} ${truck.value['trips'] == 1 ? 'trip' : 'trips'}", style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                ],
+                              ),
+                            ),
+                            Text(currencyFormat.format(truck.value['revenue']), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ))
+                  ],
+                ),
+              ),
+            ),
+          ]
+          else ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("All-Time Summary", style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 16),
+
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text("Total Revenue", style: TextStyle(fontSize: 14)),
+                          Text(currencyFormat.format(allTimeRevenue), style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green.shade700)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8)),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text("Total Expenses", style: TextStyle(fontSize: 14)),
+                          Text(currencyFormat.format(allTimeExpenses), style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.red.shade700)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: allTimeProfit >= 0 ? Colors.blue.shade50 : Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              const Text("Net Profit", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                              const SizedBox(width: 8),
+                              Icon(allTimeProfit >= 0 ? Icons.trending_up : Icons.trending_down, size: 16, color: allTimeProfit >= 0 ? Colors.green : Colors.red),
+                            ],
+                          ),
+                          Text(currencyFormat.format(allTimeProfit), style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: allTimeProfit >= 0 ? Colors.blue.shade700 : Colors.orange.shade700)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            Row(
+              children: [
+                Expanded(
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("Total Trips", style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                          const SizedBox(height: 8),
+                          Text("${widget.dispatches.length}", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("Avg Revenue/Trip", style: TextStyle(color: Colors.grey.shade600, fontSize: 13), overflow: TextOverflow.ellipsis),
+                          const SizedBox(height: 8),
+                          Text(widget.dispatches.isNotEmpty ? currencyFormat.format(allTimeRevenue / widget.dispatches.length) : '₹0', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 40),
+        ],
+      ),
+    );
+  }
+}
+
+/* ================= LOGIN & REGISTER ================= */
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final TextEditingController user = TextEditingController();
+  final TextEditingController pass = TextEditingController();
+  bool isLogin = true;
+
+  Future<void> submitAuth() async {
+    if (user.text.trim().isEmpty || pass.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please fill in all fields")));
+      return;
+    }
+
+    try {
+      showDialog(context: context, barrierDismissible: false, builder: (context) => const Center(child: CircularProgressIndicator()));
+
+      if (isLogin) {
+        await FirebaseAuth.instance.signInWithEmailAndPassword(email: user.text.trim(), password: pass.text.trim());
+      } else {
+        await FirebaseAuth.instance.createUserWithEmailAndPassword(email: user.text.trim(), password: pass.text.trim());
+      }
+
+      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        Navigator.pushReplacement<void, void>(context, MaterialPageRoute<void>(builder: (_) => HomeScreen(role: user.text.split('@').first)));
+      }
+    } on FirebaseAuthException catch (e) {
+      if (mounted) Navigator.pop(context);
+      String errorMessage = "An error occurred during authentication.";
+      if (e.code == 'user-not-found' || e.code == 'wrong-password' || e.code == 'invalid-credential') {
+        errorMessage = "Invalid Credentials. Please check your email and password.";
+      } else if (e.code == 'invalid-email') {
+        errorMessage = "Please enter a valid email format.";
+      } else if (e.code == 'email-already-in-use') {
+        errorMessage = "An account already exists for this email.";
+      } else if (e.code == 'weak-password') {
+        errorMessage = "Password is too weak. Please use at least 6 characters.";
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMessage)));
+    }
+  }
+
+  Future<void> resetPassword() async {
+    final TextEditingController resetEmailController = TextEditingController(text: user.text.trim());
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Reset Password"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text("Enter your email to receive a password reset link."),
+              const SizedBox(height: 16),
+              TextField(
+                controller: resetEmailController,
+                decoration: const InputDecoration(
+                  labelText: "Email Address",
+                  prefixIcon: Icon(Icons.email_outlined),
+                ),
+                keyboardType: TextInputType.emailAddress,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final email = resetEmailController.text.trim();
+                if (email.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter an email")));
+                  return;
+                }
+                Navigator.pop(context); // close dialog
+
+                try {
+                  await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Password reset link sent! Check your email.")),
+                    );
+                  }
+                } on FirebaseAuthException catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(e.message ?? "An error occurred")),
+                    );
+                  }
+                }
+              },
+              child: const Text("Send Link"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void toggleMode() => setState(() => isLogin = !isLogin);
+
+  @override
+  void dispose() {
+    user.dispose();
+    pass.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: SingleChildScrollView(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 450.0),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 48.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  const FleetOpsLogo(),
+                  const SizedBox(height: 60),
+                  LoginFormCard(
+                    userController: user,
+                    passController: pass,
+                    onSubmit: submitAuth,
+                    isLogin: isLogin,
+                    onToggleMode: toggleMode,
+                    onResetPassword: resetPassword,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class FleetOpsLogo extends StatelessWidget {
+  const FleetOpsLogo({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 30),
+      decoration: BoxDecoration(
+        color: Colors.white, borderRadius: BorderRadius.circular(15),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), spreadRadius: 3, blurRadius: 7, offset: const Offset(0, 5))],
+      ),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Text("FleetOps AI", style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold, color: Colors.black, letterSpacing: 1.2)),
+          SizedBox(width: 12),
+          Icon(Icons.local_shipping, color: Colors.blue, size: 36),
+        ],
+      ),
+    );
+  }
+}
+
+class LoginFormCard extends StatefulWidget {
+  final TextEditingController userController;
+  final TextEditingController passController;
+  final VoidCallback onSubmit;
+  final bool isLogin;
+  final VoidCallback onToggleMode;
+  final VoidCallback onResetPassword;
+
+  const LoginFormCard({
+    super.key,
+    required this.userController,
+    required this.passController,
+    required this.onSubmit,
+    required this.isLogin,
+    required this.onToggleMode,
+    required this.onResetPassword,
+  });
+
+  @override
+  State<LoginFormCard> createState() => _LoginFormCardState();
+}
+
+class _LoginFormCardState extends State<LoginFormCard> {
+  bool _isPasswordVisible = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 8, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(widget.isLogin ? "Owner Login" : "Register Account", style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.primary)),
+            const SizedBox(height: 40),
+            TextField(controller: widget.userController, decoration: const InputDecoration(labelText: "Email Address", prefixIcon: Icon(Icons.email_outlined)), keyboardType: TextInputType.emailAddress),
+            const SizedBox(height: 24),
+            TextField(
+              controller: widget.passController,
+              obscureText: !_isPasswordVisible,
+              decoration: InputDecoration(
+                labelText: "Password",
+                prefixIcon: const Icon(Icons.lock_outline),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      _isPasswordVisible = !_isPasswordVisible;
+                    });
+                  },
+                ),
+              ),
+            ),
+
+            if (widget.isLogin)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: widget.onResetPassword,
+                  child: Text("Forgot Password?", style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w600)),
+                ),
+              )
+            else
+              const SizedBox(height: 40),
+
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: widget.onSubmit,
+                style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16)),
+                child: Text(widget.isLogin ? "Sign In" : "Sign Up", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: widget.onToggleMode,
+              child: Text(widget.isLogin ? "Don't have an account? Sign Up" : "Already have an account? Sign In", style: TextStyle(color: Colors.blueGrey.shade600, fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/* ================= MODELS ================= */
+class Expense {
+  final String id, category, date, description;
+  final double amount;
+  final String? vehicleId;
+
+  Expense({required this.id, required this.category, required this.amount, required this.date, required this.description, this.vehicleId});
+
+  Map<String, dynamic> toMap() {
+    return {
+      'category': category,
+      'amount': amount,
+      'date': date,
+      'description': description,
+      'vehicleId': vehicleId,
+    };
+  }
+
+  factory Expense.fromMap(Map<String, dynamic> map, String documentId) {
+    return Expense(
+      id: documentId,
+      category: map['category'] ?? '',
+      amount: (map['amount'] ?? 0).toDouble(),
+      date: map['date'] ?? '',
+      description: map['description'] ?? '',
+      vehicleId: map['vehicleId'],
+    );
+  }
+}
+
+class DispatchRecord {
+  final String id, vehicleId, route, date;
+  final double revenue;
+  final String status;
+
+  DispatchRecord({required this.id, required this.vehicleId, required this.route, required this.date, required this.revenue, this.status = 'Completed'});
+
+  Map<String, dynamic> toMap() {
+    return {
+      'vehicleId': vehicleId,
+      'route': route,
+      'date': date,
+      'revenue': revenue,
+      'status': status,
+    };
+  }
+
+  factory DispatchRecord.fromMap(Map<String, dynamic> map, String documentId) {
+    return DispatchRecord(
+      id: documentId,
+      vehicleId: map['vehicleId'] ?? '',
+      route: map['route'] ?? '',
+      date: map['date'] ?? '',
+      revenue: (map['revenue'] ?? 0).toDouble(),
+      status: map['status'] ?? 'Completed',
+    );
+  }
+}
+
+class NavigationItem {
+  final String title;
+  final IconData icon;
+  final bool downward;
+
+  const NavigationItem({required this.title, required this.icon, required this.downward});
+
+  static const List<NavigationItem> fleetOpsNavigationItems = <NavigationItem>[
+    NavigationItem(title: 'Dashboard', icon: Icons.dashboard, downward: true),
+    NavigationItem(title: 'Expenses', icon: Icons.receipt_long, downward: true),
+    NavigationItem(title: 'Dispatch', icon: Icons.local_shipping, downward: true),
+    NavigationItem(title: 'Reports', icon: Icons.bar_chart, downward: true),
+    NavigationItem(title: 'AI Insights', icon: Icons.psychology, downward: true),
+  ];
+}
