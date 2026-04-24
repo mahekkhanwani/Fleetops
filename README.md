@@ -1,53 +1,17 @@
-# FleetOps 🚚
+# fleetops_ai
 
-## Smart Fleet & Logistics Management Platform
+A new Flutter project.
 
-FleetOps is an AI-powered fleet and logistics management platform that helps businesses track vehicles, manage deliveries, optimize routes, and reduce costs using real-time data and smart insights.
+## Getting Started
 
-## Problem Statement
-Smart Supply Chains – Resilient Logistics and Dynamic Supply Chain Optimization
+This project is a starting point for a Flutter application.
 
-## Features
-- Live GPS Vehicle Tracking
-- Smart Dispatch Management
-- AI Route Optimization
-- Fuel & Expense Tracker
-- Driver Performance Reports
-- Vehicle Maintenance Alerts
-- Analytics Dashboard
-- Notifications & Alerts
-- AI Insights using Google Gemini
+A few resources to get you started if this is your first Flutter project:
 
-## Technologies Used
-- Flutter
-- Firebase
-- Google Cloud
-- Firestore Database
-- Google Maps API
-- Gemini AI API
+- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
+- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
+- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
 
-## Benefits
-- Reduces delivery delays
-- Saves fuel costs
-- Improves efficiency
-- Real-time fleet monitoring
-- Better business decisions
-
-## How to Run
-1. Clone the repository
-2. Open project in Flutter
-3. Run `flutter pub get`
-4. Run on emulator or device
-
-## Future Scope
-- Predictive Maintenance
-- Voice Assistant for Drivers
-- Carbon Emission Tracking
-- IoT Integration
-- Demand Forecasting
-
-## Team Name
-FleetOps Innovators
-
-## Developed For
-Build with AI – Solution Challenge 2026
+For help getting started with Flutter development, view the
+[online documentation](https://docs.flutter.dev/), which offers tutorials,
+samples, guidance on mobile development, and a full API reference.
